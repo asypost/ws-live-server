@@ -1,0 +1,9 @@
+[package]
+name = "ws-live-server"
+version = "0.1.0"
+authors = ["shell <asypost@yeah.net>"]
+
+[dependencies]
+ws = "0.7.6"
+url = "1.7.0"
+clap = "2.31.2"
