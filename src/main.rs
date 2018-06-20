@@ -24,7 +24,6 @@ impl Handler for TrancodeService {
             if let Ok(url) = url.join(shake.request.resource()) {
                 for (name, value) in url.query_pairs() {
                     if name == "url" {
-                        println!("{}", value);
                         let cmd = Command::new("ffmpeg")
                             .stdout(Stdio::piped())
                             .args(&[
