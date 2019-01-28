@@ -4,6 +4,13 @@ version = "0.1.0"
 authors = ["shell <asypost@yeah.net>"]
 
 [dependencies]
-ws = "0.7.6"
-url = "1.7.0"
-clap = "2.31.2"
+ws = "0.7.9"
+url = "1.7.2"
+clap = "2.32.0"
+
+[profile.release]
+opt-level = 3
+debug = false
+rpath = false
+lto = true
+codegen-units = 1

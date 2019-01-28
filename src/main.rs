@@ -2,16 +2,17 @@ extern crate clap;
 extern crate url;
 extern crate ws;
 
+mod transcoder;
+
 use clap::{App, Arg};
-use std::io::Read;
-use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::TryRecvError;
 use url::Url;
 use ws::util::Token;
-use ws::{CloseCode, Handler, Handshake, Sender};
+use ws::{Builder, CloseCode, Handler, Handshake, Sender, Settings};
 
 struct TrancodeService {
     out: Sender,
-    ffmpeg: Option<Child>,
+    transcoder: Option<transcoder::TransCoder>,
 }
 
 impl TrancodeService {
@@ -24,67 +25,68 @@ impl Handler for TrancodeService {
             if let Ok(url) = url.join(shake.request.resource()) {
                 for (name, value) in url.query_pairs() {
                     if name == "url" {
-                        let cmd = Command::new("ffmpeg")
-                            .stdout(Stdio::piped())
-                            .args(&[
-                                "-i",
-                                &value,
-                                "-c:v",
-                                "libx264",
-                                "-loglevel",
-                                "quiet",
-                                "-threads",
-                                "2",
-                                "-f",
-                                "flv",
-                                "-ar",
-                                "22050",
-                                "-crf",
-                                "42",
-                                "-r",
-                                "15",
-                                "-",
-                            ])
-                            .spawn();
-                        if let Ok(ffmpeg) = cmd {
-                            self.ffmpeg = Some(ffmpeg);
-                        }
+                        self.transcoder = Some(transcoder::TransCoder::new(&value));
                         break;
                     }
                 }
             }
         }
-        self.out.timeout(10, Self::READ)?;
+        if let Some(ref mut transcoder) = self.transcoder {
+            transcoder.start();
+        }
+        self.out.timeout(1, Self::READ)?;
         Ok(())
     }
 
     fn on_timeout(&mut self, event: Token) -> ws::Result<()> {
-        if let Some(ref mut ffmpeg) = self.ffmpeg {
-            if event == Self::READ {
-                let mut buffer = [0_u8; 100 * 1024];
-                if let Some(ref mut stdout) = ffmpeg.stdout {
-                    if let Ok(size) = stdout.read(&mut buffer) {
-                        if size > 0 {
-                            self.out.send(&buffer[..size])?;
-                            self.out.timeout(10, Self::READ)?;
-                        } else {
-                            self.out.close(CloseCode::Empty)?;
-                        }
+        if event == Self::READ {
+            if let Some(ref transcoder) = self.transcoder {
+                let mut read_more = false;
+                let mut timeout = 60;
+                for _ in 0..200 {
+                    let recv_result = transcoder.try_recv();
+                    match recv_result {
+                        Ok(response) => match response {
+                            transcoder::TransCoderResponse::EOS => {
+                                self.out.close(CloseCode::Normal)?;
+                            }
+                            transcoder::TransCoderResponse::Error(e) => {
+                                eprintln!("{:?}", e);
+                                self.out.close(CloseCode::Error)?;
+                                break;
+                            }
+                            transcoder::TransCoderResponse::Data(data) => {
+                                self.out.send(data)?;
+                                read_more = true;
+                            }
+                        },
+                        Err(e) => match e {
+                            TryRecvError::Empty => {
+                                read_more = true;
+                                timeout = 200;
+                                break;
+                            }
+                            TryRecvError::Disconnected => {
+                                self.out.close(CloseCode::Normal)?;
+                                break;
+                            }
+                        },
                     }
                 }
+                if read_more {
+                    self.out.timeout(timeout, Self::READ)?;
+                }
+            } else {
+                self.out.close(CloseCode::Invalid)?;
             }
-        } else {
-            self.out.close(CloseCode::Protocol)?;
         }
         Ok(())
     }
 
     fn on_close(&mut self, _code: CloseCode, _reason: &str) {
-        if self.ffmpeg.is_some() {
-            let mut ffmpeg = self.ffmpeg.take().unwrap();
-            if let Ok(None) = ffmpeg.try_wait() {
-                let _ = ffmpeg.kill();
-            }
+        if self.transcoder.is_some() {
+            let mut transcoder = self.transcoder.take().unwrap();
+            transcoder.stop();
         }
     }
 }
@@ -116,8 +118,16 @@ fn main() {
     url.push_str(":");
     url.push_str(port);
 
-    ws::listen(url, move |out| TrancodeService {
-        out,
-        ffmpeg: Option::None,
-    }).unwrap();
+    Builder::new()
+        .with_settings(Settings {
+            out_buffer_capacity: 200 * 1024,
+            ..Settings::default()
+        })
+        .build(move |out| TrancodeService {
+            out,
+            transcoder: Option::None,
+        })
+        .unwrap()
+        .listen(url)
+        .unwrap();
 }
