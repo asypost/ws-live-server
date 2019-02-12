@@ -19,6 +19,8 @@ pub struct TransCoder {
 }
 
 impl TransCoder {
+    pub const BUFFER_SIZE: usize = 200 * 1024;
+
     pub fn new(src: &str) -> Self {
         let (sender, receiver) = channel();
         Self {
@@ -73,7 +75,7 @@ impl TransCoder {
                 .spawn();
             match cmd {
                 Ok(mut ffmpeg) => {
-                    let mut buffer = [0_u8; 200 * 1024];
+                    let mut buffer = [0_u8; Self::BUFFER_SIZE];
                     loop {
                         let running = running_ref.lock().unwrap();
                         if *running == false {

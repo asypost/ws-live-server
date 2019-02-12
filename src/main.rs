@@ -1,18 +1,15 @@
-extern crate clap;
-extern crate url;
-extern crate ws;
-
 mod transcoder;
 
 use clap::{App, Arg};
 use std::sync::mpsc::TryRecvError;
+use transcoder::{TransCoder, TransCoderResponse};
 use url::Url;
 use ws::util::Token;
 use ws::{Builder, CloseCode, Handler, Handshake, Sender, Settings};
 
 struct TrancodeService {
     out: Sender,
-    transcoder: Option<transcoder::TransCoder>,
+    transcoder: Option<TransCoder>,
 }
 
 impl TrancodeService {
@@ -25,7 +22,7 @@ impl Handler for TrancodeService {
             if let Ok(url) = url.join(shake.request.resource()) {
                 for (name, value) in url.query_pairs() {
                     if name == "url" {
-                        self.transcoder = Some(transcoder::TransCoder::new(&value));
+                        self.transcoder = Some(TransCoder::new(&value));
                         break;
                     }
                 }
@@ -47,15 +44,15 @@ impl Handler for TrancodeService {
                     let recv_result = transcoder.try_recv();
                     match recv_result {
                         Ok(response) => match response {
-                            transcoder::TransCoderResponse::EOS => {
+                            TransCoderResponse::EOS => {
                                 self.out.close(CloseCode::Normal)?;
                             }
-                            transcoder::TransCoderResponse::Error(e) => {
+                            TransCoderResponse::Error(e) => {
                                 eprintln!("{:?}", e);
                                 self.out.close(CloseCode::Error)?;
                                 break;
                             }
-                            transcoder::TransCoderResponse::Data(data) => {
+                            TransCoderResponse::Data(data) => {
                                 self.out.send(data)?;
                                 read_more = true;
                             }
@@ -120,7 +117,7 @@ fn main() {
 
     Builder::new()
         .with_settings(Settings {
-            out_buffer_capacity: 200 * 1024,
+            out_buffer_capacity: TransCoder::BUFFER_SIZE,
             ..Settings::default()
         })
         .build(move |out| TrancodeService {

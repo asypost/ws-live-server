@@ -2,6 +2,7 @@
 name = "ws-live-server"
 version = "0.1.0"
 authors = ["shell <asypost@yeah.net>"]
+edition = "2018"
 
 [dependencies]
 ws = "0.7.9"
