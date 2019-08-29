@@ -1,4 +1,4 @@
-# ws-live-server
+# ws-live-server [![Build Status](https://travis-ci.org/asypost/ws-live-server.svg?branch=master)](https://travis-ci.org/asypost/ws-live-server)
 Transcode video to FLV WebSocket Stream
 # Purpose
 The original purpose of this repo is provide another way to play rstp stream in modern web browsers instead of using an IE only ActiveX plugin.
